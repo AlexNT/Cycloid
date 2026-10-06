@@ -1,0 +1,21 @@
+# Python
+__pycache__/
+*.py[cod]
+.venv/
+venv/
+
+# Результаты выгрузки в SOLIDWORKS и файлы блокировки
+sw_out/
+~$*
+*.SLDPRT
+*.SLDASM
+*.SLDDRW
+
+# Экспорт DXF
+*.dxf
+
+# IDE / ОС
+.vscode/
+.idea/
+.claude/
+Thumbs.db

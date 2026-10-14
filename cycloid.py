@@ -79,7 +79,7 @@ class App(tk.Tk):
 
         self._slider(panel, "N  - число роликов", "n", 27, 3, 60, 1, int)
         self._slider(panel, "R  - радиус окружности роликов, мм", "R", 70.0, 10, 150, 0.5)
-        self._slider(panel, "rp - радиус ролика, мм", "rp", 6.0, 0.5, 15, 0.1)
+        self._slider(panel, "dp - диаметр ролика, мм", "rp", 12.0, 1, 30, 0.1)
         self._slider(panel, "e  - эксцентриситет, мм", "e", 1.5, 0.1, 10, 0.05)
         self._slider(panel, "Дисков (1 или 2, сдвиг 180°)", "discs", 2, 1, 2, 1, int)
         self._slider(panel, "Выходных пальцев", "nh", 6, 3, 16, 1, int)
@@ -87,8 +87,8 @@ class App(tk.Tk):
         ttk.Checkbutton(panel, text="Авто-размеры Rh, ro, отверстия (ввод вручную фиксирует)",
                         variable=self.vars["auto"], command=self._on_auto).pack(anchor="w", pady=(6, 0))
         self._slider(panel, "Rh - радиус окружности пальцев, мм", "Rh", 30.0, 3, 100, 0.1)
-        self._slider(panel, "ro - радиус выходного пальца, мм", "ro", 2.7, 0.3, 10, 0.1)
-        self._slider(panel, "Радиус центрального отверстия, мм", "bore", 12.0, 0.5, 40, 0.1)
+        self._slider(panel, "do - диаметр выходного пальца, мм", "ro", 5.4, 0.6, 20, 0.1)
+        self._slider(panel, "Диаметр центрального отверстия, мм", "bore", 24.0, 1, 80, 0.1)
         self._slider(panel, "Толщина диска (для SolidWorks), мм", "thick", 8.0, 1, 40, 0.5, lock=False)
         self._slider(panel, "Угол входного вала, °", "phi", 0, 0, 360, 1, float, self._on_phi, lock=False)
         self._slider(panel, "Скорость анимации, °/кадр", "speed", 2.0, 0.2, 10, 0.1, lock=False)
@@ -106,7 +106,12 @@ class App(tk.Tk):
             self.vars[key] = v
             ttk.Checkbutton(panel, text=text, variable=v, command=self.redraw).pack(anchor="w")
 
-        ttk.Button(panel, text="Пресет 26:1 (N=27)", command=self.preset_26).pack(fill=tk.X, pady=(8, 0))
+        proj = ttk.Frame(panel)
+        proj.pack(fill=tk.X, pady=(8, 0))
+        for text, cmd in (("Сохранить", self.save), ("Сохранить как...", self.save_as),
+                          ("Загрузить...", self.load)):
+            ttk.Button(proj, text=text, command=cmd).pack(side=tk.LEFT, expand=True, fill=tk.X)
+        ttk.Button(panel, text="Пресет 26:1 (N=27)", command=self.preset_26).pack(fill=tk.X, pady=(4, 0))
         ttk.Button(panel, text="Экспорт DXF (диск, фаза 0)", command=self.export_dxf).pack(fill=tk.X)
         sw = ttk.LabelFrame(panel, text="Выгрузка в SolidWorks", padding=4)
         sw.pack(fill=tk.X, pady=(6, 0))
@@ -191,11 +196,70 @@ class App(tk.Tk):
         self.redraw()
 
     def preset_26(self):
-        for k, v in (("n", 27), ("R", 70.0), ("rp", 6.0), ("e", 1.5), ("discs", 2), ("nh", 6)):
+        for k, v in (("n", 27), ("R", 70.0), ("rp", 12.0), ("e", 1.5), ("discs", 2), ("nh", 6)):
             self._set(k, v)
             self.vars[k + "_lock"].set(False)
         self.vars["auto"].set(True)
         self._on_auto()
+
+    # ---- сохранение / загрузка параметров (JSON)
+    FILETYPES = [("Проект Cycloid", "*.json"), ("Все файлы", "*.*")]
+
+    def _write(self, path):
+        import json
+        from tkinter import messagebox
+        data = {k: v.get() for k, v in self.vars.items()}
+        try:
+            with open(path, "w", encoding="utf-8") as f:
+                json.dump(data, f, ensure_ascii=False, indent=2)
+        except OSError as ex:
+            messagebox.showerror("Сохранение", f"Не удалось сохранить:\n{ex}")
+            return
+        self.path = path
+        self.title(f"Циклоидальный редуктор - {path}")
+
+    def save(self):
+        if getattr(self, "path", None):
+            self._write(self.path)
+        else:
+            self.save_as()
+
+    def save_as(self):
+        from tkinter import filedialog
+        path = filedialog.asksaveasfilename(defaultextension=".json", filetypes=self.FILETYPES,
+                                            initialfile="cycloid.json")
+        if path:
+            self._write(path)
+
+    def load(self):
+        import json
+        from tkinter import filedialog, messagebox
+        path = filedialog.askopenfilename(defaultextension=".json", filetypes=self.FILETYPES)
+        if not path:
+            return
+        try:
+            with open(path, encoding="utf-8") as f:
+                data = json.load(f)
+            if not isinstance(data, dict):
+                raise ValueError("неверный формат файла")
+        except (OSError, ValueError) as ex:
+            messagebox.showerror("Загрузка", f"Не удалось загрузить:\n{ex}")
+            return
+        for k, val in data.items():
+            var = self.vars.get(k)
+            if var is None:
+                continue
+            try:
+                if hasattr(var, "_txt"):
+                    self._set(k, float(val))
+                else:
+                    var.set(bool(val))
+            except (TypeError, ValueError, tk.TclError):
+                pass
+        self.phi = math.radians(self.vars["phi"].get())
+        self.path = path
+        self.title(f"Циклоидальный редуктор - {path}")
+        self.redraw()
 
     def export_dxf(self):
         from tkinter import filedialog
@@ -308,7 +372,7 @@ class App(tk.Tk):
     # ---- расчёт согласованных размеров
     def params(self):
         return (int(self.vars["n"].get()), self.vars["R"].get(),
-                self.vars["rp"].get(), self.vars["e"].get())
+                self.vars["rp"].get() / 2, self.vars["e"].get())   # rp - радиус; поле - диаметр
 
     def profile(self, n, R, rp, e):
         key = (n, R, rp, e)
@@ -347,8 +411,8 @@ class App(tk.Tk):
         if not L("rp"):
             rp2 = min(rp, R * math.sin(math.pi / n) / 1.25, 0.2 * R)
             if rp2 != rp:
-                rp = round(rp2, 1)
-                self._set("rp", rp)
+                rp = round(2 * rp2, 1) / 2
+                self._set("rp", 2 * rp)
         if e * n >= R:
             warn.append("e*N >= R: профиль вырожден")
             e = 0.99 * R / n          # только для расчёта
@@ -358,7 +422,7 @@ class App(tk.Tk):
         # радиус впадины диска
         root = min(math.hypot(x, y) for x, y in self.profile(n, R, rp, e)[::4])
         wall = max(0.8, 0.03 * R)
-        Rh, ro, bore = v["Rh"].get(), v["ro"].get(), v["bore"].get()
+        Rh, ro, bore = v["Rh"].get(), v["ro"].get() / 2, v["bore"].get() / 2   # ro, bore - радиусы; поля - диаметры
         if v["auto"].get():
             if not L("Rh"):
                 Rh = 0.72 * root
@@ -379,8 +443,8 @@ class App(tk.Tk):
             bore = max(0.5, min(bore, 0.8 * free))
         for k, val in (("Rh", Rh), ("ro", ro), ("bore", bore)):
             if not L(k):
-                self._set(k, round(val, 1))
-        Rh, ro, bore = v["Rh"].get(), v["ro"].get(), v["bore"].get()
+                self._set(k, round(val * (2 if k in ("ro", "bore") else 1), 1))
+        Rh, ro, bore = v["Rh"].get(), v["ro"].get() / 2, v["bore"].get() / 2
         if nh != int(v["nh"].get()):
             self._set("nh", nh)
 
